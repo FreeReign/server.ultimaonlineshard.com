@@ -12,3 +12,4 @@
 *.suo
 /Backups
 /Saves
+Scripts/WebAccounting/WAConfig.cs
