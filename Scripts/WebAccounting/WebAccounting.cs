@@ -39,41 +39,34 @@ namespace Server.Accounting
 			DatabaseUserID = WAConfig.DatabaseUserID,
 			DatabasePassword = WAConfig.DatabasePassword;
 
-		static string ConnectionString = string.Format( "DRIVER={0};SERVER={1};DATABASE={2};UID={3};PASSWORD={4};",
+		static string ConnectionString = string.Format( "DRIVER={0};SERVER={1};DATABASE={2};UID={3};PASSWORD={4};CHARSET=UTF8",
 			DatabaseDriver, DatabaseServer, DatabaseName, DatabaseUserID, DatabasePassword );
 
 		static bool Synchronizing = false;
 
-		public static void Initialize( )
-		{
+		public static void Initialize(){
 			SynchronizeDatabase( );
 			CommandSystem.Register( "AccSync", AccessLevel.Administrator, new CommandEventHandler( Sync_OnCommand ) );
 
-			if( UpdateOnWorldLoad )
-			{
+			if( UpdateOnWorldLoad ){
 				EventSink.WorldLoad += new WorldLoadEventHandler( OnLoaded );
 			}
 
-			if( UpdateOnWorldSave )
-			{
+			if( UpdateOnWorldSave ){
 				EventSink.WorldSave += new WorldSaveEventHandler( OnSaved );
-			}
-			else
-			{
+			}else{
 				Timer.DelayCall( TimeSpan.FromSeconds( 30.0 ), new TimerCallback( SynchronizeDatabase ) );
 			}
 		}
 
-		public static void OnSaved( WorldSaveEventArgs e )
-		{
+		public static void OnSaved( WorldSaveEventArgs e ){
 			if( Synchronizing )
 				return;
 
 			SynchronizeDatabase( );
 		}
 
-		public static void OnLoaded( )
-		{
+		public static void OnLoaded( ){
 			if( Synchronizing )
 				return;
 
@@ -82,8 +75,7 @@ namespace Server.Accounting
 
 		[Usage( "AccSync" )]
 		[Description( "Synchronizes the Accounts Database" )]
-		public static void Sync_OnCommand( CommandEventArgs e )
-		{
+		public static void Sync_OnCommand( CommandEventArgs e ){
 			if( Synchronizing )
 				return;
 
@@ -93,65 +85,63 @@ namespace Server.Accounting
 			from.SendMessage( "Done Synchronizing Database!" );
 		}
 
-		public static void CreateAccountsFromDB( )
-		{
-			//Console.WriteLine( "Getting New Accounts..." );
-			try
-			{
-				ArrayList ToCreateFromDB = new ArrayList( );
+
+		//Gets all users from the db
+		//if they dont exist in the UO XML
+		//create them, passing the hashed password to the 
+		public static void CreateAccountsFromDB( ){
+			Console.WriteLine( "[CreateAccountsFromDB]" );
+			try{
+				ArrayList ToCreateFromDB = new ArrayList();
 				OdbcConnection Connection = new OdbcConnection( ConnectionString );
 
-				Connection.Open( );
+				Connection.Open();
 				OdbcCommand Command = Connection.CreateCommand( );
 
-				Command.CommandText = string.Format( "SELECT name,password FROM {0} WHERE state='{1}'", DatabaseTable, ( int )Status.Pending );
-				OdbcDataReader reader = Command.ExecuteReader( );
+				Console.WriteLine("    Getting New Accounts From DB");
 
+				Command.CommandText = string.Format( "SELECT username, password FROM {0} WHERE state='{1}'", DatabaseTable, ( int )Status.Pending );
+				OdbcDataReader reader = Command.ExecuteReader( );
+				
 				QueryCount += 1;
 
-				while( reader.Read( ) )
-				{
-					string username = reader.GetString( 0 );
-					string password = reader.GetString( 1 );
+				while( reader.Read() ){
+					string username = reader.GetString(0);
+					string password = reader.GetString(1);
 
-					if( Accounts.GetAccount( username ) == null )
-						ToCreateFromDB.Add( Accounts.AddAccount( username, password ) );
+					Console.WriteLine("Password from MySQL: {0}", password);
+
+					//If user doesn't exist in xml
+					if( Accounts.GetAccount(username) == null )
+						//create a new user for xml and push to the array
+						ToCreateFromDB.Add( Accounts.AddAccount(username, password) );
 				}
-				reader.Close( );
+				reader.Close();
 
-				//Console.WriteLine( "Updating Database..." );
-				foreach( Account a in ToCreateFromDB )
-				{
+				//Get the Accounts access level from the array
+				foreach( Account a in ToCreateFromDB ){
 					int ALevel = 0;
 
-					if( a.AccessLevel == AccessLevel.Player )
-					{
+					if( a.AccessLevel == AccessLevel.Player ){
 						ALevel = 1;
-					}
-					else if( a.AccessLevel == AccessLevel.Counselor )
-					{
+					}else if( a.AccessLevel == AccessLevel.Counselor ){
 						ALevel = 2;
-					}
-					else if( a.AccessLevel == AccessLevel.GameMaster )
-					{
+					}else if( a.AccessLevel == AccessLevel.GameMaster ){
 						ALevel = 3;
-					}
-					else if( a.AccessLevel == AccessLevel.Seer )
-					{
+					}else if( a.AccessLevel == AccessLevel.Seer ){
 						ALevel = 4;
-					}
-					else if( a.AccessLevel == AccessLevel.Administrator )
-					{
+					}else if( a.AccessLevel == AccessLevel.Administrator ){
 						ALevel = 6;
 					}
 
 					QueryCount += 1;
-
-					Command.CommandText = string.Format( "UPDATE {0} SET password='{1}',state='{2}',access='{3}' WHERE name='{4}'", DatabaseTable, a.CryptPassword, ( int )Status.Active, ALevel, a.Username );
-					Command.ExecuteNonQuery( );
+					
+					Console.WriteLine( "    Updating Database With Accurate XML Information..." );
+					Command.CommandText = string.Format( "UPDATE {0} SET state='{1}', access='{2}' WHERE username='{3}'", DatabaseTable, ( int )Status.Active, ALevel, a.Username );
+					Command.ExecuteNonQuery();
 				}
 
-				Connection.Close( );
+				Connection.Close();
 
 				Console.WriteLine( "[{0} In-Game Accounts Created] ", ToCreateFromDB.Count );
 			}
@@ -162,77 +152,86 @@ namespace Server.Accounting
 			}
 		}
 
-
-		public static void CreateAccountsFromUO( )
-		{
-			Console.WriteLine( "Exporting New Accounts..." );
-			try
-			{
+		//Scans UO accounts.xml for all accounts
+		//compares the usernames against the MySQL Query
+		//any mismatches it adds them to the db
+		public static void CreateAccountsFromUO(){
+			Console.WriteLine( "[CreateAccountsFromUO]" );
+			try{	
 				ArrayList ToCreateFromUO = new ArrayList( );
+				/**
+				 * Query the database for all the user accounts
+				 */
 				OdbcConnection Connection = new OdbcConnection( ConnectionString );
-
 				Connection.Open( );
 				OdbcCommand Command = Connection.CreateCommand( );
-
-				Command.CommandText = string.Format( "SELECT name FROM {0}", DatabaseTable );
+				Console.WriteLine("    Exporting New Accounts from UO");
+				Command.CommandText = string.Format( "SELECT username FROM {0}", DatabaseTable );
 				OdbcDataReader reader = Command.ExecuteReader( );
-
+				//Set the query count to start at 1
 				QueryCount += 1;
 
-				while( reader.Read( ) )
-				{
+				/**
+				 * Iterate through the returned rows from the database
+				 * Try to get a username from accounts.xml
+				 * If we cant, add it to the array to be created later
+				 */
+				while( reader.Read() ){
+					//set the username = to 0 of the array from db
 					string username = reader.GetString( 0 );
-					Console.WriteLine( username);
+					//Debugging purposes
+					// Console.Write("User Returned from DB: ");
+					// Console.WriteLine( username);
+
+					//Try to find the user, returns username or null
 					Account toCheck = Accounts.GetAccount( username ) as Account;
 
+					// Console.Write("toCheck: ");
+					// Console.WriteLine(toCheck);
+
 					if( toCheck == null )
+						//Account doesn't exist in accounts.xml, add it to the array
 						ToCreateFromUO.Add( toCheck );
+
 				}
-				reader.Close( );
+				reader.Close();
 
-				Console.WriteLine( "Updating Database..." );
-				foreach(var item in ToCreateFromUO)
-				  Console.Write("{0}", item);
-				foreach( Account a in ToCreateFromUO )
-				{
+				//iterate through all the accounts in the array
+				foreach( Account a in ToCreateFromUO ){
+					//Determine the access level of the account from xml
 					int ALevel = 0;
-
-					if( a.AccessLevel == AccessLevel.Player )
-					{
+					if( a.AccessLevel == AccessLevel.Player ){
 						ALevel = 1;
-					}
-					else if( a.AccessLevel == AccessLevel.Counselor )
-					{
+					}else if( a.AccessLevel == AccessLevel.Counselor ){
 						ALevel = 2;
-					}
-					else if( a.AccessLevel == AccessLevel.GameMaster )
+					}else if( a.AccessLevel == AccessLevel.GameMaster )
 					{
 						ALevel = 3;
-					}
-					else if( a.AccessLevel == AccessLevel.Seer )
-					{
+					}else if( a.AccessLevel == AccessLevel.Seer ){
 						ALevel = 4;
-					}
-					else if( a.AccessLevel == AccessLevel.Administrator )
-					{
+					}else if( a.AccessLevel == AccessLevel.Administrator ){
 						ALevel = 6;
 					}
 
+					//Get the password protection alg.. best to use sha1
 					PasswordProtection PWMode = AccountHandler.ProtectPasswords;
+
+					//make sure Password is empty
 					string Password = "";
 
-					switch( PWMode )
-					{
+					switch( PWMode ){
 						case PasswordProtection.None: { Password = a.PlainPassword; } break;
 						case PasswordProtection.Crypt: { Password = a.CryptPassword; } break;
 						default: { Password = a.NewCryptPassword; } break;
 					}
+					
+					Console.WriteLine( "    Creating New User in Database..." );
 
 					QueryCount += 1;
 
 					OdbcCommand InsertCommand = Connection.CreateCommand( );
 
-					InsertCommand.CommandText = string.Format( "INSERT INTO {0} (name,password,access,timestamp,state) VALUES( '{1}', '{2}', '{3}', '{4}', '{5}')", DatabaseTable, a.Username, Password, ALevel, ToUnixTimestamp( a.Created ), ( int )Status.Active );
+					InsertCommand.CommandText = string.Format( "INSERT INTO {0} (username,password,access,timestamp,state) VALUES( '{1}', '{2}', '{3}', '{4}', '{5}')", DatabaseTable, a.Username, Password, ALevel, ToUnixTimestamp( a.Created ), ( int )Status.Active );
 					InsertCommand.ExecuteNonQuery( );
 				}
 
@@ -242,49 +241,53 @@ namespace Server.Accounting
 			}
 			catch( Exception e )
 			{
-				Console.WriteLine( "[Database Account Create] Error..." );
+				Console.WriteLine( "    Database Account Create Error..." );
 				Console.WriteLine( e );
 			}
 		}
 
-		public static void UpdateUOPasswords( )
-		{
-			//Console.WriteLine( "Getting New Passwords..." );
-			try
-			{
+		public static void UpdateUOPasswords(){
+			Console.WriteLine( "[UpdateUOPasswords]" );
+			try{
 				ArrayList ToUpdatePWFromDB = new ArrayList( );
 				OdbcConnection Connection = new OdbcConnection( ConnectionString );
 
 				Connection.Open( );
 				OdbcCommand Command = Connection.CreateCommand( );
-
-				Command.CommandText = string.Format( "SELECT name,password FROM {0} WHERE state='{1}'", DatabaseTable, ( int )Status.PWChanged );
+				Console.WriteLine("     Getting new password hashes from db");
+				Command.CommandText = string.Format( "SELECT username, password FROM {0} WHERE state='{1}'", DatabaseTable, ( int )Status.PWChanged );
 				OdbcDataReader reader = Command.ExecuteReader( );
 
 				QueryCount += 1;
-
-				while( reader.Read( ) )
-				{
+				//iterate through db accts which are status = 3
+				while( reader.Read( ) ){
 					string username = reader.GetString( 0 );
 					string password = reader.GetString( 1 );
-
+					//get the uo account data
 					Account AtoUpdate = Accounts.GetAccount( username ) as Account;
-
+					//if an account is found
 					if( AtoUpdate != null )
 					{
+						//get the protection mode.
 						PasswordProtection PWMode = AccountHandler.ProtectPasswords;
+						//make password empty
 						string Password = "";
 
 						switch( PWMode )
 						{
+							//plain password
 							case PasswordProtection.None: { Password = AtoUpdate.PlainPassword; } break;
+							//crypto password (md5)
 							case PasswordProtection.Crypt: { Password = AtoUpdate.CryptPassword; } break;
+							//sha512 password
 							default: { Password = AtoUpdate.NewCryptPassword; } break;
 						}
-
+						//if the password is empty, null or not = db password
 						if( Password == null || Password == "" || Password != password )
 						{
+							//encrypt the password
 							AtoUpdate.SetPassword( password );
+							//push to the updatepwfromdb array
 							ToUpdatePWFromDB.Add( AtoUpdate );
 						}
 					}
@@ -306,7 +309,7 @@ namespace Server.Accounting
 
 					QueryCount += 1;
 
-					Command.CommandText = string.Format( "UPDATE {0} SET state='{1}',password='{2}' WHERE name='{3}'", DatabaseTable, ( int )Status.Active, PasswordU, a.Username );
+					Command.CommandText = string.Format( "UPDATE {0} SET state='{1}',password='{2}' WHERE username='{3}'", DatabaseTable, ( int )Status.Active, PasswordU, a.Username );
 					Command.ExecuteNonQuery( );
 				}
 
@@ -321,52 +324,45 @@ namespace Server.Accounting
 			}
 		}
 
-		public static void UpdateDBPasswords( )
-		{
-			//Console.WriteLine( "Exporting New Passwords..." );
-			try
-			{
+		public static void UpdateDBPasswords(){
+			Console.WriteLine( "[UpdateDBPasswords] Exporting New Passwords..." );
+			try{
 				ArrayList ToUpdatePWFromUO = new ArrayList( );
 				OdbcConnection Connection = new OdbcConnection( ConnectionString );
 
 				Connection.Open( );
 				OdbcCommand Command = Connection.CreateCommand( );
 
-				Command.CommandText = string.Format( "SELECT name,password FROM {0} WHERE state='{1}'", DatabaseTable, ( int )Status.Active );
+				Command.CommandText = string.Format( "SELECT username, password FROM {0} WHERE state='{1}'", DatabaseTable, ( int )Status.Active );
 				OdbcDataReader reader = Command.ExecuteReader( );
 
 				QueryCount += 1;
 
-				while( reader.Read( ) )
-				{
+				while( reader.Read( ) ){
 					string username = reader.GetString( 0 );
 					string password = reader.GetString( 1 );
 
 					Account AtoUpdate = Accounts.GetAccount( username ) as Account;
 
-					if( AtoUpdate != null )
-					{
+					if( AtoUpdate != null ){
 						PasswordProtection PWMode = AccountHandler.ProtectPasswords;
 						string Password = "";
 
-						switch( PWMode )
-						{
+						switch( PWMode ){
 							case PasswordProtection.None: { Password = AtoUpdate.PlainPassword; } break;
 							case PasswordProtection.Crypt: { Password = AtoUpdate.CryptPassword; } break;
 							default: { Password = AtoUpdate.NewCryptPassword; } break;
 						}
 
-						if( Password == null || Password == "" || Password != password )
-						{
+						if( Password == null || Password == "" || Password != password ){
 							ToUpdatePWFromUO.Add( AtoUpdate );
 						}
 					}
 				}
 				reader.Close( );
 
-				//Console.WriteLine( "Updating Database..." );
-				foreach( Account a in ToUpdatePWFromUO )
-				{
+				Console.WriteLine( "[UpdateDBPasswords] Updating Database..." );
+				foreach( Account a in ToUpdatePWFromUO ){
 					PasswordProtection PWModeU = AccountHandler.ProtectPasswords;
 					string PasswordU = "";
 
@@ -379,7 +375,7 @@ namespace Server.Accounting
 
 					QueryCount += 1;
 
-					Command.CommandText = string.Format( "UPDATE {0} SET state='{1}',password='{2}' WHERE name='{3}'", DatabaseTable, ( int )Status.Active, PasswordU, a.Username );
+					Command.CommandText = string.Format( "UPDATE {0} SET state='{1}', password='{2}' WHERE username='{3}'", DatabaseTable, ( int )Status.Active, PasswordU, a.Username );
 					Command.ExecuteNonQuery( );
 				}
 
@@ -394,143 +390,35 @@ namespace Server.Accounting
 			}
 		}
 
-
-
-		// public static void UpdateUOEmails( )
-		// {
-		// 	//Console.WriteLine( "Getting New Emails..." );
-		// 	try
-		// 	{
-		// 		ArrayList ToUpdateEmailFromDB = new ArrayList( );
-		// 		OdbcConnection Connection = new OdbcConnection( ConnectionString );
-
-		// 		Connection.Open( );
-		// 		OdbcCommand Command = Connection.CreateCommand( );
-
-		// 		Command.CommandText = string.Format( "SELECT name,email FROM {0} WHERE state='{1}'", DatabaseTable, ( int )Status.EmailChanged );
-		// 		OdbcDataReader reader = Command.ExecuteReader( );
-
-		// 		QueryCount += 1;
-
-		// 		while( reader.Read( ) )
-		// 		{
-		// 			string username = reader.GetString( 0 );
-		// 			string email = reader.GetString( 1 );
-
-		// 			Account AtoUpdate = Accounts.GetAccount( username ) as Account;
-
-		// 			if( AtoUpdate != null && ( AtoUpdate.Email == null || AtoUpdate.Email == "" || AtoUpdate.Email != email ) )
-		// 			{
-		// 				AtoUpdate.Email = email;
-		// 				ToUpdateEmailFromDB.Add( AtoUpdate );
-		// 			}
-		// 		}
-		// 		reader.Close( );
-
-		// 		//Console.WriteLine( "Updating Database..." );
-		// 		foreach( Account a in ToUpdateEmailFromDB )
-		// 		{
-		// 			QueryCount += 1;
-
-		// 			Command.CommandText = string.Format( "UPDATE {0} SET state='{1}',email='{2}' WHERE name='{3}'", DatabaseTable, ( int )Status.Active, a.Email, a.Username );
-		// 			Command.ExecuteNonQuery( );
-		// 		}
-
-		// 		Connection.Close( );
-
-		// 		Console.WriteLine( "[{0} In-Game Emails Changed] ", ToUpdateEmailFromDB.Count );
-		// 	}
-		// 	catch( System.Exception e )
-		// 	{
-		// 		Console.WriteLine( "[In-Game Email Change] Error..." );
-		// 		Console.WriteLine( e );
-		// 	}
-		// }
-
-		// public static void UpdateDBEmails( )
-		// {
-		// 	//Console.WriteLine( "Exporting New Emails..." );
-		// 	try
-		// 	{
-		// 		ArrayList ToUpdateEmailFromUO = new ArrayList( );
-		// 		OdbcConnection Connection = new OdbcConnection( ConnectionString );
-
-		// 		Connection.Open( );
-		// 		OdbcCommand Command = Connection.CreateCommand( );
-
-		// 		Command.CommandText = string.Format( "SELECT name,email FROM {0} WHERE state='{1}'", DatabaseTable, ( int )Status.Active );
-		// 		OdbcDataReader reader = Command.ExecuteReader( );
-
-		// 		QueryCount += 1;
-
-		// 		while( reader.Read( ) )
-		// 		{
-		// 			string username = reader.GetString( 0 );
-		// 			string email = reader.GetString( 1 );
-
-		// 			Account AtoUpdate = Accounts.GetAccount( username ) as Account;
-
-		// 			if( AtoUpdate != null && ( AtoUpdate.Email == null || AtoUpdate.Email == "" || AtoUpdate.Email != email ) )
-		// 				ToUpdateEmailFromUO.Add( AtoUpdate );
-		// 		}
-		// 		reader.Close( );
-
-		// 		//Console.WriteLine( "Updating Database..." );
-		// 		foreach( Account a in ToUpdateEmailFromUO )
-		// 		{
-		// 			QueryCount += 1;
-
-		// 			Command.CommandText = string.Format( "UPDATE {0} SET state='{1}',email='{2}' WHERE name='{3}'", DatabaseTable, ( int )Status.Active, a.Email, a.Username );
-		// 			Command.ExecuteNonQuery( );
-		// 		}
-
-		// 		Connection.Close( );
-
-		// 		Console.WriteLine( "[{0} Database Emails Changed] ", ToUpdateEmailFromUO.Count );
-		// 	}
-		// 	catch( Exception e )
-		// 	{
-		// 		Console.WriteLine( "[Database Email Change] Error..." );
-		// 		Console.WriteLine( e );
-		// 	}
-		// }
-
-		public static void SynchronizeDatabase( )
-		{
+		public static void SynchronizeDatabase(){
 			if( Synchronizing || !WAConfig.Enabled )
 				return;
 
 			Synchronizing = true;
 
-			Console.WriteLine( "Accounting System..." );
+			Console.WriteLine( "[Starting Accounting System]" );
 
-			CreateAccountsFromDB( );
-			CreateAccountsFromUO( );
+			// get accounts from DB and create UO XML accounts
+			CreateAccountsFromDB();
+			// Password on DB has changed, update the UO XML for the account
+			//UpdateUOPasswords();
+			
+			//get accounts from UO XML and create DB accounts
+			//CreateAccountsFromUO( );
 
-			// UpdateUOEmails( );
-			// UpdateDBEmails( );
-
-			UpdateUOPasswords( );
-			UpdateDBPasswords( );
+			
+			// UpdateDBPasswords( );
 
 			Console.WriteLine( string.Format( "[Executed {0} Database Queries]", QueryCount.ToString( ) ) );
-
 			QueryCount = 0;
-
-			World.Save( );
-
+			World.Save();
 			Synchronizing = false;
 		}
 
-		static double ToUnixTimestamp( DateTime date )
-		{
+		static double ToUnixTimestamp( DateTime date ){
 			DateTime origin = new DateTime( 1970, 1, 1, 0, 0, 0, 0 );
-
 			TimeSpan diff = date - origin;
-
 			return Math.Floor( diff.TotalSeconds );
 		}
-
-
 	}
 }
