@@ -40,10 +40,13 @@ namespace Server.Accounting
 		{
 			m_Accounts[a.Username] = a;
 		}
-		
+
+		/**
+		 * Web account specific method
+		 */
 		public static Account AddAccount( string user, string pass )
 		{
-			Account a = new Account( user, pass );
+			Account a = new Account( user, pass, true );
 			if( m_Accounts.Count == 0 )
 				a.AccessLevel = AccessLevel.Administrator;
 
