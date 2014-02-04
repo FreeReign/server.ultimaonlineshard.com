@@ -13,3 +13,8 @@
 /Backups
 /Saves
 Scripts/WebAccounting/WAConfig.cs
+*.mdproj
+
+*.sln
+
+*.userprefs
