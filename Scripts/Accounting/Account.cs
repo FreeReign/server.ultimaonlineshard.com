@@ -400,6 +400,8 @@ namespace Server.Accounting
 
 		private static MD5CryptoServiceProvider m_MD5HashProvider;
 		private static SHA1CryptoServiceProvider m_SHA1HashProvider;
+		private static SHA512CryptoServiceProvider m_SHA512HashProvider;
+
 		private static byte[] m_HashBuffer;
 
 		public static string HashMD5( string phrase )
@@ -416,6 +418,17 @@ namespace Server.Accounting
 			return BitConverter.ToString( hashed );
 		}
 
+		public static string HashSHA512( string phrase )
+		{
+			if( m_SHA512HashProvider == null )
+		    	m_SHA512HashProvider = new SHA512CryptoServiceProvider();
+
+			byte[] hashed = m_SHA512HashProvider.ComputeHash(Encoding.UTF8.GetBytes(phrase)); // or ASCII if that's sufficient for you input data.
+
+			return BitConverter.ToString( hashed ).Replace("-", "").ToLower();
+		}
+
+
 		public static string HashSHA1( string phrase )
 		{
 			if ( m_SHA1HashProvider == null )
@@ -427,7 +440,7 @@ namespace Server.Accounting
 			int length = Encoding.ASCII.GetBytes( phrase, 0, phrase.Length > 256 ? 256 : phrase.Length, m_HashBuffer, 0 );
 			byte[] hashed = m_SHA1HashProvider.ComputeHash( m_HashBuffer, 0, length );
 
-			return BitConverter.ToString( hashed );
+			return BitConverter.ToString( hashed ).Replace("-", "").ToLower();
 		}
 
 		public void SetPassword( string plainPassword )
@@ -454,31 +467,25 @@ namespace Server.Accounting
 					{
 						m_PlainPassword = null;
 						m_CryptPassword = null;
-						m_NewCryptPassword = HashSHA1( m_Username + plainPassword );
+						m_NewCryptPassword = HashSHA512( m_Username + plainPassword );
 
 						break;
 					}
 			}
 		}
 
-		public bool CheckPassword( string plainPassword )
-		{
+		public bool CheckPassword( string plainPassword ){
 			bool ok;
 			PasswordProtection curProt;
 
-			if ( m_PlainPassword != null )
-			{
+			if ( m_PlainPassword != null ){
 				ok = ( m_PlainPassword == plainPassword );
 				curProt = PasswordProtection.None;
-			}
-			else if ( m_CryptPassword != null )
-			{
+			}else if ( m_CryptPassword != null ){
 				ok = ( m_CryptPassword == HashMD5( plainPassword ) );
 				curProt = PasswordProtection.Crypt;
-			}
-			else
-			{
-				ok = ( m_NewCryptPassword == HashSHA1( m_Username + plainPassword ) );
+			}else{
+				ok = ( m_NewCryptPassword == HashSHA512( m_Username + plainPassword ) );
 				curProt = PasswordProtection.NewCrypt;
 			}
 
@@ -599,12 +606,16 @@ namespace Server.Accounting
 			}
 		}
 
-		public Account( string username, string password )
+		public Account( string username, string password, bool webAccount = false )
 		{
 			m_Username = username;
-			
-			SetPassword( password );
-
+			if(webAccount == true){
+				Console.WriteLine("Received Password Is: {0}", password);
+				m_NewCryptPassword = password;			
+			}else{
+				m_NewCryptPassword = password;
+				SetPassword(password);
+			}
 			m_AccessLevel = AccessLevel.Player;
 
 			m_Created = m_LastLogin = DateTime.UtcNow;
